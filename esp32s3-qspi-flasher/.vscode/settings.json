@@ -6,5 +6,6 @@
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=/Users/kaihang/esp32/esp32s3-qspi-flasher/esp32s3-qspi-flasher/build"
-  ]
+  ],
+  "idf.currentSetup": "/Users/kaihang/.espressif/v6.0.1/esp-idf"
 }

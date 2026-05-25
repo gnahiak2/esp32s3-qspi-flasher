@@ -1,42 +1,91 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
-#include "flash.h"
 
-static const char *TAG = "main";
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
+
+#define PIN_NUM_MISO 13
+#define PIN_NUM_MOSI 11
+#define PIN_NUM_CLK  12
+#define PIN_NUM_CS   10
+#define PIN_NUM_WP   14
+#define PIN_NUM_HD   9
+
+spi_device_handle_t spi;
+
+void setup_pullups(void)
+{
+    gpio_set_pull_mode(PIN_NUM_CS, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(PIN_NUM_WP, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(PIN_NUM_HD, GPIO_PULLUP_ONLY);
+}
+
+esp_err_t spi_init(void)
+{
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = PIN_NUM_MOSI,
+        .miso_io_num = PIN_NUM_MISO,
+        .sclk_io_num = PIN_NUM_CLK,
+        .quadwp_io_num = PIN_NUM_WP,
+        .quadhd_io_num = PIN_NUM_HD,
+        .max_transfer_sz = 4096,
+    };
+
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = 1 * 1000 * 1000, // 1 MHz
+        .mode = 0,
+        .spics_io_num = PIN_NUM_CS,
+        .queue_size = 1,
+    };
+
+    ESP_ERROR_CHECK(spi_bus_initialize(
+        SPI2_HOST,
+        &buscfg,
+        SPI_DMA_CH_AUTO
+    ));
+
+    return spi_bus_add_device(
+        SPI2_HOST,
+        &devcfg,
+        &spi
+    );
+}
+
+void read_jedec_id(void)
+{
+    uint8_t cmd = 0x9F;
+    uint8_t id[3] = {0};
+
+    spi_transaction_t t = {
+        .length = 8,
+        .tx_buffer = &cmd,
+    };
+
+    ESP_ERROR_CHECK(spi_device_transmit(spi, &t));
+
+    memset(&t, 0, sizeof(t));
+
+    t.length = 24;
+    t.rxlength = 24;
+    t.rx_buffer = id;
+
+    ESP_ERROR_CHECK(spi_device_transmit(spi, &t));
+
+    printf("JEDEC ID: %02X %02X %02X\n",
+           id[0], id[1], id[2]);
+}
 
 void app_main(void)
 {
-    flash_quad_cfg_t cfg = {
-        .host = SPI2_HOST,
-        .cs = GPIO_NUM_10,
-        .clk = GPIO_NUM_12,
-        .io0 = GPIO_NUM_11,
-        .io1 = GPIO_NUM_13,
-        .io2 = GPIO_NUM_14,
-        .io3 = GPIO_NUM_9,
-        .clock_hz = 20 * 1000 * 1000,
-    };
+    setup_pullups();
 
-    ESP_ERROR_CHECK(flash_init(&cfg));
+    ESP_ERROR_CHECK(spi_init());
 
-    flash_jedec_id_t id = {0};
-    ESP_ERROR_CHECK(flash_read_jedec_id(&id));
-
-    flash_status_t st = {0};
-    ESP_ERROR_CHECK(flash_read_status(&st));
-
-    ESP_LOGI(TAG, "JEDEC=%02X %02X %02X",
-             id.manufacturer_id, id.memory_type, id.capacity_id);
-
-    ESP_LOGI(TAG, "Status1=0x%02X Status2=0x%02X Status3=0x%02X",
-             st.status1, st.status2, st.status3);
-
-    flash_probe_result_t probe = FLASH_PROBE_UNKNOWN;
-    ESP_ERROR_CHECK(flash_probe_write_path(&probe));
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        read_jedec_id();
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
